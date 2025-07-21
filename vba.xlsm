@@ -1,0 +1,99 @@
+Sub RefreshAndSaveMonthlyQueries()
+    Dim wb As Workbook
+    Dim exportPath As String
+    Dim file1 As String, file2 As String
+    Dim monthStamp As String
+    Dim query1Name As String, query2Name As String
+    Dim currentDate As Date
+    Dim ws1 As Worksheet, ws2 As Worksheet
+
+    ' === SETUP ===
+    Set wb = ThisWorkbook
+    currentDate = Date
+    monthStamp = Format(currentDate, "YYYY-MM") ' e.g. 2025-07
+    exportPath = wb.Path & "\MonthlyExports\"
+
+    query1Name = "QueryOutput1" ' <-- Replace with actual query name
+    query2Name = "QueryOutput2" ' <-- Replace with actual query name
+
+    file1 = exportPath & query1Name & "_" & monthStamp & ".xlsx"
+    file2 = exportPath & query2Name & "_" & monthStamp & ".xlsx"
+
+    ' === CREATE EXPORT FOLDER IF MISSING ===
+    If Dir(exportPath, vbDirectory) = "" Then MkDir exportPath
+
+    ' === CHECK IF FILES ALREADY EXIST ===
+    If Dir(file1) <> "" And Dir(file2) <> "" Then
+        MsgBox "Files already exist for " & monthStamp & ". Skipping refresh.", vbInformation
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+
+    ' === REFRESH QUERIES ===
+    wb.Queries(query1Name).Refresh
+    wb.Queries(query2Name).Refresh
+    DoEvents
+    Application.CalculateUntilAsyncQueriesDone
+
+    ' === DUMP TO TEMP SHEETS ===
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    wb.Worksheets(query1Name).Delete
+    wb.Worksheets(query2Name).Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+
+    Set ws1 = wb.Sheets.Add(After:=wb.Sheets(wb.Sheets.Count))
+    ws1.Name = query1Name
+    ws1.Range("A1").ListObject.QueryTable.Refresh BackgroundQuery:=False
+
+    Set ws2 = wb.Sheets.Add(After:=wb.Sheets(wb.Sheets.Count))
+    ws2.Name = query2Name
+    ws2.Range("A1").ListObject.QueryTable.Refresh BackgroundQuery:=False
+
+    ' === EXPORT TO SEPARATE FILES ===
+    ws1.Copy
+    ActiveWorkbook.SaveAs Filename:=file1, FileFormat:=xlOpenXMLWorkbook
+    ActiveWorkbook.Close SaveChanges:=False
+
+    ws2.Copy
+    ActiveWorkbook.SaveAs Filename:=file2, FileFormat:=xlOpenXMLWorkbook
+    ActiveWorkbook.Close SaveChanges:=False
+
+    ' === COPY BACK TO MASTER FILE (STATIC) ===
+    Dim masterWS1 As Worksheet, masterWS2 As Worksheet
+    Dim destWB As Workbook, tempWB As Workbook
+
+    ' Remove if already there
+    On Error Resume Next
+    wb.Sheets("Final_" & query1Name).Delete
+    wb.Sheets("Final_" & query2Name).Delete
+    On Error GoTo 0
+
+    ' Copy file1 data
+    Set tempWB = Workbooks.Open(file1, ReadOnly:=True)
+    tempWB.Sheets(1).Copy After:=wb.Sheets(wb.Sheets.Count)
+    Set masterWS1 = wb.Sheets(wb.Sheets.Count)
+    masterWS1.Name = "Final_" & query1Name
+    tempWB.Close False
+
+    ' Copy file2 data
+    Set tempWB = Workbooks.Open(file2, ReadOnly:=True)
+    tempWB.Sheets(1).Copy After:=wb.Sheets(wb.Sheets.Count)
+    Set masterWS2 = wb.Sheets(wb.Sheets.Count)
+    masterWS2.Name = "Final_" & query2Name
+    tempWB.Close False
+
+    ' === CLEAN UP ===
+    On Error Resume Next
+    ws1.Delete
+    ws2.Delete
+    On Error GoTo 0
+
+    Application.DisplayAlerts = True
+    Application.ScreenUpdating = True
+
+    MsgBox "Refresh and export completed for " & monthStamp, vbInformation
+End Sub
